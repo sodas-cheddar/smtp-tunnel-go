@@ -134,12 +134,8 @@ func (c *Client) Connect(parentCtx context.Context) error {
                 _ = tcp.SetNoDelay(true)
                 _ = tcp.SetKeepAlive(true)
                 _ = tcp.SetKeepAlivePeriod(30 * time.Second)
-                if c.opts.ReadBufferSize > 0 {
-                        _ = tcp.SetReadBuffer(c.opts.ReadBufferSize)
-                }
-                if c.opts.WriteBufferSize > 0 {
-                        _ = tcp.SetWriteBuffer(c.opts.WriteBufferSize)
-                }
+                // Do NOT set fixed buffer sizes — let the kernel autotune.
+                // See the detailed comment in server.go NewServerSession.
         }
 
         c.conn = conn

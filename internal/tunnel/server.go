@@ -92,12 +92,16 @@ func NewServerSession(conn net.Conn, tlsCfg *tls.Config, users map[string]*confi
                 _ = tcp.SetNoDelay(true)
                 _ = tcp.SetKeepAlive(true)
                 _ = tcp.SetKeepAlivePeriod(30 * time.Second)
-                if opts.ReadBufferSize > 0 {
-                        _ = tcp.SetReadBuffer(opts.ReadBufferSize)
-                }
-                if opts.WriteBufferSize > 0 {
-                        _ = tcp.SetWriteBuffer(opts.WriteBufferSize)
-                }
+                // IMPORTANT: do NOT call SetReadBuffer / SetWriteBuffer here.
+                // On Linux, calling setsockopt(SO_SNDBUF/SO_RCVBUF) DISABLES
+                // TCP autotuning for that socket. Autotuning is what lets the
+                // kernel grow the send/receive buffers to match the connection's
+                // BDP (bandwidth × RTT). For a 200 Mbps link at 100 ms RTT,
+                // the BDP is 2.5 MB — far larger than any fixed buffer we'd
+                // pick. Capping at 256 KB (as the original code did) caps
+                // throughput at ~20 Mbps for high-RTT links. The Python version
+                // doesn't touch socket buffers and gets the full 200 Mbps; we
+                // match that by also letting the kernel autotune.
         }
         if peer, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
                 s.clientIP = peer.IP.String()
@@ -368,12 +372,8 @@ func (s *ServerSession) handleConnect(f *protocol.Frame) {
                 _ = tcp.SetNoDelay(true)
                 _ = tcp.SetKeepAlive(true)
                 _ = tcp.SetKeepAlivePeriod(30 * time.Second)
-                if s.opts.ReadBufferSize > 0 {
-                        _ = tcp.SetReadBuffer(s.opts.ReadBufferSize)
-                }
-                if s.opts.WriteBufferSize > 0 {
-                        _ = tcp.SetWriteBuffer(s.opts.WriteBufferSize)
-                }
+                // Do NOT set fixed buffer sizes — see comment in
+                // NewServerSession about TCP autotuning.
         }
 
         ch := newChannel(s.common, f.ChannelID, conn)

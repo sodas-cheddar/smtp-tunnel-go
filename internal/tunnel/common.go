@@ -199,15 +199,21 @@ func (c *common) closeAllChannels() {
 // TLS connection. It runs as a single goroutine per tunnel session —
 // concurrent writers would interleave partial frames on the wire.
 //
-// To maximize throughput we batch: after sending one frame we do a
-// non-blocking try-receive for up to 15 more frames in the queue and
-// concatenate them into a single buffer, then issue one Write() call.
-// This drastically reduces syscall and TLS record overhead under load.
+// To maximize throughput we batch aggressively: after dequeuing the first
+// frame we drain ALL remaining frames in the queue (up to the batch buffer
+// capacity) and concatenate them into a single buffer, then issue one
+// Write() call. This amortizes TLS record framing + syscall overhead
+// across many frames.
+//
+// The batch buffer is 1 MB — enough for ~15 full-size (64 KB) frames.
+// It is allocated once per pump and reused via slice reslicing.
 func (c *common) writePump() {
         defer c.Close()
 
-        // Reusable big buffer for batching. Allocated once per pump.
-        batch := make([]byte, 0, 64*1024)
+        // 1 MB batch buffer — large enough to hold a full burst of frames
+        // without reallocation. Each appendFrame grows the slice in place
+        // until cap is reached, at which point we flush and start over.
+        batch := make([]byte, 0, 1024*1024)
 
         for {
                 select {
@@ -219,18 +225,25 @@ func (c *common) writePump() {
                         c.stats.FramesOut.Add(1)
                         c.stats.BytesOut.Add(int64(len(f.Payload)))
 
-                        // Drain up to 15 more frames in a single scheduling quantum.
-                        for i := 0; i < 15; i++ {
+                        // Drain ALL pending frames — not just a fixed count.
+                        // Keep pulling as long as there's data immediately
+                        // available and we have room in the batch buffer.
+                        // This is the key to high throughput: a single TLS
+                        // write can carry an entire burst of frames.
+                        for len(batch) < cap(batch)-(protocol.MaxPayloadSize+protocol.FrameHeaderSize) {
                                 select {
                                 case more := <-c.send:
                                         batch = appendFrame(batch, more)
                                         c.stats.FramesOut.Add(1)
                                         c.stats.BytesOut.Add(int64(len(more.Payload)))
                                 default:
-                                        i = 15
+                                        // No more frames immediately available.
+                                        // Flush what we have rather than waiting.
+                                        goto flush
                                 }
                         }
 
+                flush:
                         if err := c.wr.WriteRaw(batch); err != nil {
                                 return
                         }
