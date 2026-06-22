@@ -1,0 +1,49 @@
+# SMTP Tunnel Configuration
+# Copy this file and customize for your setup.
+#
+# The Go version uses the same YAML schema as the Python original —
+# existing config.yaml files work without modification.
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+server:
+  # Listen address (0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
+  host: "0.0.0.0"
+
+  # SMTP submission port (587 is standard; 465 = SMTPS, 25 = often blocked)
+  port: 587
+
+  # Hostname advertised in SMTP greeting. Must match your TLS cert.
+  hostname: "mail.example.com"
+
+  # TLS certificate and key files (generate with `smtp-tunnel-go gencerts`)
+  cert_file: "server.crt"
+  key_file: "server.key"
+
+  # Users configuration file (per-user secrets, IP whitelists, logging)
+  users_file: "users.yaml"
+
+  # Global logging setting (can be overridden per-user in users.yaml)
+  log_users: true
+
+# ============================================================================
+# Client Configuration
+# Used by `smtp-tunnel-go client` and by `adduser` when generating client
+# packages.
+# ============================================================================
+client:
+  # Tunnel server FQDN (required for TLS verification)
+  server_host: "mail.example.com"
+  server_port: 587
+
+  # Local SOCKS5 proxy listener
+  socks_host: "127.0.0.1"
+  socks_port: 1080
+
+  # Per-user credentials (set by adduser in generated client configs)
+  # username: "alice"
+  # secret: "..."
+
+  # CA certificate for server verification (RECOMMENDED for security)
+  ca_cert: "ca.crt"
